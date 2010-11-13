@@ -44,4 +44,9 @@ describe ByteParser::CString do
     input = StringIO.new("hi there\0what is up")
     @parser.read(input).should == "hi there"
   end
+  
+  it 'stops reading if it does not hit a null byte' do
+    input = StringIO.new("hi there")
+    @parser.read(input).should == "hi there"
+  end
 end
