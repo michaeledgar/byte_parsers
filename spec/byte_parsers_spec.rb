@@ -21,9 +21,19 @@ describe "ByteParsers" do
   end
   
   describe '#read' do
+    before do
+      @fourcc = RandomStuff.bytes 4
+      @version = RandomStuff.bytes 2
+      @name = RandomStuff.name
+      @tag = RandomStuff.string(7)
+      @weird_string = RandomStuff.string(RandomStuff.number(15..100))
+      @number_terminated = RandomStuff.string(RandomStuff.number(15..100))
+      @input = @fourcc + @version + @name + "\0" + @tag + @weird_string +
+               "4" + @number_terminated + RandomStuff.number(0..9).to_s
+    end
+      
     it 'returns an object with readers for each field' do
-      input = "\x01\x02\x03\x04ABMichael\0MJEMJEMThisEndsWith4EndsWith3okay"
-      result = SimpleParser.read(StringIO.new(input))
+      result = SimpleParser.read(StringIO.new(@input))
       result.should respond_to(:fourcc)
       result.should respond_to(:version)
       result.should respond_to(:name)
@@ -33,14 +43,13 @@ describe "ByteParsers" do
     end
     
     it 'parses basic input' do
-      input = "\x01\x02\x03\x04ABMichael\0MJEMJEMThisEndsWith4EndsWith3okay"
-      result = SimpleParser.read(StringIO.new(input))
-      result.fourcc.should == 0x01020304
-      result.version.should == 0x4241
-      result.name.should == 'Michael'
-      result.tag.should == 'MJEMJEM'
-      result.weird_string.should == 'ThisEndsWith'
-      result.number_terminated_string.should == 'EndsWith'
+      result = SimpleParser.read(StringIO.new(@input))
+      result.fourcc.should == @fourcc.unpack('N').first
+      result.version.should == @version.unpack('v').first
+      result.name.should == @name
+      result.tag.should == @tag
+      result.weird_string.should == @weird_string
+      result.number_terminated_string.should == @number_terminated
     end
   end
 end

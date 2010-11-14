@@ -37,25 +37,56 @@ class ByteParser
     end
   end
   
+  class BlockParser < Parser
+    def initialize(opts={})
+      raise ArgumentError.new("Must provide :block for BlockParser") unless opts[:block]
+      super
+    end
+    
+    def fixed_size?
+      false
+    end
+    
+    def static_size
+      raise DynamicParserError.new
+    end
+    
+    def read(input)
+      opts[:block].call(input)
+    end
+  end
+  
   [[4, 'N', 'V', 'L'], [2, 'n', 'v', 'S'],
    [1, 'C', 'C', 'C']].each do |size, big, little, native|
-    klass = Class.new(Parser)
-    # defs are faster than define_method. Though worse.
-    klass.class_eval(<<-EOF)
+     # defs are faster than define_method. Though worse.
+    preamble =
+    <<-EOF
       def fixed_size?; true; end
       def static_size; #{size}; end
       def read(input)
         char = case opts[:endian]
-        when :big then '#{big}'
-        when :little then '#{little}'
-        else '#{native}'
-        end
+               when :big then '#{big}'
+               when :little then '#{little}'
+               else '#{native}'
+               end
+    EOF
+    klass = Class.new(Parser)
+    const_set("UInt#{size * 8}", klass)
+    klass.class_eval(preamble + <<-EOF)
         input.read(static_size).unpack(char).first
       end
     EOF
-    const_set("UInt#{size * 8}", klass)
+    klass = Class.new(Parser)
+    const_set("Int#{size * 8}", klass)
+    klass.class_eval(preamble + <<-EOF)
+        result = input.read(static_size).unpack(char).first
+        if result >= #{2 ** (size * 8 - 1)}
+          result = -1 * (#{2 ** (size * 8)} - result)
+        end
+        result
+      end
+    EOF
   end
-
 
   class String < Parser
     def initialize(opts={})

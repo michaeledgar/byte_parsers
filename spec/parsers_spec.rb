@@ -1,5 +1,42 @@
 require File.expand_path(File.dirname(__FILE__) + '/spec_helper')
 
+describe ByteParser::BlockParser do
+  before do
+    @parser = ByteParser::BlockParser.new(:block => proc do |input|
+          a, b = input.read(1), input.read(1)
+          a > b ? (a + input.read(1)) : b
+        end)
+  end
+  
+  describe '#fixed_size?' do
+    it 'returns false' do
+      @parser.fixed_size?.should be_false
+    end
+  end
+  
+  describe '#static_size' do
+    it "raises, since blocks have static sizes" do
+      lambda {
+        @parser.static_size
+      }.should raise_error(ByteParser::DynamicParserError)
+    end
+  end
+  
+  describe '#read' do
+    it 'reads 3 characters if the first is greater than the second' do
+      input = StringIO.new('bac')
+      output = 'bc'
+      @parser.read(input).should == output
+    end
+    
+    it 'returns the second character if the first is <= the second' do
+      input = StringIO.new('abc')
+      output = 'b'
+      @parser.read(input).should == output
+    end
+  end
+end
+
 describe ByteParser::UInt32 do
   before do
     @parser = ByteParser::UInt32.new(:endian => :little)
@@ -89,6 +126,132 @@ describe ByteParser::UInt8 do
       parser = ByteParser::UInt8.new(:endian => :big)
       input = StringIO.new("\xcbblahblah")
       parser.read(input).should == 0xcb
+    end
+  end
+end
+
+describe ByteParser::Int32 do
+  before do
+    @parser = ByteParser::Int32.new(:endian => :little)
+  end
+
+  describe '#fixed_size?' do
+    it 'returns true' do
+      @parser.fixed_size?.should be_true
+    end
+  end
+  
+  describe '#static_size' do
+    it 'returns 4 bytes (for 32 bits)' do
+      @parser.static_size.should == 4
+    end
+  end
+    
+  describe '#read' do
+    it 'reads a simple little-endian uint32' do
+      input = StringIO.new("\x01\x02\x03\x04blahblah")
+      @parser.read(input).should == 0x04030201
+    end
+    
+    it 'reads a simple big-endian uint32' do
+      parser = ByteParser::Int32.new(:endian => :big)
+      input = StringIO.new("\x01\x02\x03\x04blahblah")
+      parser.read(input).should == 0x01020304
+    end
+    
+    it 'converts overflowed signed values to negatives' do
+      input = StringIO.new(0xfe.chr + 0xf0.chr + 0xff.chr + 0xff.chr)
+      @parser.read(input).should == -15 * (2 ** 8) - 2
+    end
+    
+    it 'is switches endian first when converting overflow' do
+      parser = ByteParser::Int32.new(:endian => :big)
+      input = StringIO.new(0xfe.chr + 0xf0.chr + 0xff.chr + 0xff.chr)
+      parser.read(input).should == (-1 * (2 ** 24)) - (15 * (2 ** 16)) - 1
+    end
+  end
+end
+
+describe ByteParser::Int16 do
+  before do
+    @parser = ByteParser::Int16.new(:endian => :little)
+  end
+
+  describe '#fixed_size?' do
+    it 'returns true' do
+      @parser.fixed_size?.should be_true
+    end
+  end
+    
+  describe '#static_size' do
+    it 'returns 2 bytes (for 16 bits)' do
+      @parser.static_size.should == 2
+    end
+  end
+    
+  describe '#read' do
+    it 'reads a simple little-endian uint16' do
+      input = StringIO.new("\x01\x02blahblah")
+      @parser.read(input).should == 0x0201
+    end
+    
+    it 'reads a simple big-endian uint16' do
+      parser = ByteParser::Int16.new(:endian => :big)
+      input = StringIO.new("\x01\x02blahblah")
+      parser.read(input).should == 0x0102
+    end
+    
+    it 'converts overflowed signed values to negatives' do
+      input = StringIO.new(0xfe.chr + 0xf0.chr)
+      @parser.read(input).should == -15 * 256 - 2
+    end
+    
+    it 'is switches endian first when converting overflow' do
+      parser = ByteParser::Int16.new(:endian => :big)
+      input = StringIO.new(0xfe.chr + 0xf0.chr)
+      parser.read(input).should == -256 - 16
+    end
+  end
+end
+
+describe ByteParser::Int8 do
+  before do
+    @parser = ByteParser::Int8.new(:endian => :little)
+  end
+
+  describe '#fixed_size?' do
+    it 'returns true' do
+      @parser.fixed_size?.should be_true
+    end
+  end
+    
+  describe '#static_size' do
+    it 'returns 1 byte (for 8 bits)' do
+      @parser.static_size.should == 1
+    end
+  end
+    
+  describe '#read' do
+    it 'reads a simple little-endian uint8' do
+      input = StringIO.new("\x31blahblah")
+      @parser.read(input).should == 0x31
+    end
+    
+    it 'should be unaffected by endianness' do
+      parser = ByteParser::Int8.new(:endian => :big)
+      input = StringIO.new("\x31blahblah")
+      parser.read(input).should == 0x31
+    end
+    
+    it 'converts overflowed signed values to negatives' do
+      input = StringIO.new("\xfe")
+      @parser.read(input).should == -2
+    end
+    
+    it 'is unaffected by endian when converting overflow' do
+      parser = ByteParser::Int8.new(:endian => :big)
+      input = StringIO.new("\xfe")
+      @parser.read(input).should == -2
     end
   end
 end
