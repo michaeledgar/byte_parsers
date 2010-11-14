@@ -14,6 +14,23 @@ describe ByteParser::Parser do
       }.should raise_error(ArgumentError)
     end
   end
+  
+  describe 'a subclass that does not override ' do
+    before do
+      subclass = Class.new(ByteParser::Parser)
+      @instance = subclass.new
+    end
+    [['#fixed_size?', 0], ['#static_size', 0], ['#read', 1],
+     ['#write', 1]].each do |method, arity|
+      describe method do
+        it 'raises when not overridden' do
+          lambda {
+            @instance.send(method[1..-1].to_sym, *([nil] * arity))
+          }.should raise_error(NotImplementedError)
+        end
+      end
+    end
+  end
 end
 
 describe ByteParser::BlockParser do
@@ -26,6 +43,16 @@ describe ByteParser::BlockParser do
   
   is_not_fixed parser
   no_static_size parser
+  
+  describe '#initialize' do
+    it 'raises if :read_block is not provided' do
+      lambda { ByteParser::BlockParser.new(:write_block => 1) }.should raise_error(ArgumentError)
+    end
+    
+    it 'raises if :write_block is not provided' do
+      lambda { ByteParser::BlockParser.new(:read_block => 1) }.should raise_error(ArgumentError)
+    end
+  end
   
   describe '#read' do
     reads 'bac', 'bc', 'reads 3 characters if the first is greater than the second', parser
@@ -178,7 +205,7 @@ describe ByteParser::String do
     end
     it 'raises if :terminator is a Proc and :write_block is a non-Proc' do
       lambda { 
-        ByteParser::String.new(:terminator => 3.14, :write_block => 'hai')
+        ByteParser::String.new(:terminator => proc {|x|}, :write_block => 'hai')
       }.should raise_error(ArgumentError)
     end
   end

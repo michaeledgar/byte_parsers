@@ -10,29 +10,7 @@ Spec::Runner.configure do |config|
 end
 
 module ByteParsers
-  module RSpec
-    module Matchers
-      # Matcher for checking if #match? returns trues
-      class Warns
-        def initialize(input, *args)
-          @input, @args = input, args
-        end
-
-        def matches?(actual)
-          @class = actual
-          @class.new('(stdin)', @input, *@args).match?
-        end
-
-        def failure_message
-          "expected '#{@actual}' to match #{@input.inspect}"
-        end
-
-        def negative_failure_message
-          "expected '#{@actual}' to not match #{@input.inspect}"
-        end
-      end
-    end
-    
+  module RSpec    
     module Macros
       def is_fixed(parser)
         describe '#fixed_size?' do
@@ -89,7 +67,6 @@ module ByteParsers
 end
 
 Spec::Runner.configure do |config|
-  config.include(ByteParsers::RSpec::Matchers)
   config.extend(ByteParsers::RSpec::Macros)
 end
 
