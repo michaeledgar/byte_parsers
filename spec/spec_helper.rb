@@ -34,44 +34,43 @@ module ByteParsers
     end
     
     module Macros
-      def is_fixed(parser = nil)
+      def is_fixed(parser)
         describe '#fixed_size?' do
           it 'returns true' do
-            (parser || @parser).fixed_size?.should be_true
+            parser.fixed_size?.should be_true
           end
         end
       end
       
-      def is_not_fixed(parser = nil)
+      def is_not_fixed(parser)
         describe '#fixed_size?' do
           it 'returns false' do
-            (parser || @parser).fixed_size?.should be_false
+            parser.fixed_size?.should be_false
           end
         end
       end
       
-      def static_size(bytes, parser = nil)
+      def static_size(bytes, parser)
+        is_fixed parser
         describe '#static_size' do
           it 'returns the correct size' do
-            (parser || @parser).static_size.should == bytes
+            parser.static_size.should == bytes
           end
         end
       end
       
-      def no_static_size(parser = nil)
+      def no_static_size(parser)
         describe '#static_size' do
           it "raises, since #{subject} doesn't have static sizes" do
             lambda {
-              (parser || @parser).static_size
+              parser.static_size
             }.should raise_error(ByteParser::DynamicParserError)
           end
         end
       end
       
-      def reads(input, output, desc = "Expects #{input.inspect} to be parsed to #{output.inspect}",
-                parser = nil)
+      def reads(input, output, desc = "Expects #{input.inspect} to be parsed to #{output.inspect}", parser = nil)
         it desc do
-          parser ||= @parser
           input_stream = StringIO.new(input)
           parser.read(input_stream).should == output
         end
@@ -80,7 +79,6 @@ module ByteParsers
       def writes(value, output, desc = "Expects #{input.inspect} to be parsed to #{output.inspect}",
                  parser = nil)
         it desc do
-          parser ||= @parser
           output_stream = StringIO.new
           parser.write(value, output_stream)
           output_stream.string.should == output
