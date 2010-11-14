@@ -3,12 +3,12 @@ require File.expand_path(File.dirname(__FILE__) + '/spec_helper')
 describe "ByteParsers" do
   before(:all) do
     SimpleParser = ByteParser.new do
-      add :fourcc, BP::UInt32, :endian => :big
-      add :version, BP::UInt16, :endian => :little
-      add :name, BP::CString
-      add :tag, BP::FixedString, :size => 7
-      add :weird_string, BP::String, :terminator => "4"
-      add :number_terminated_string, BP::String, :terminator => proc {|x| x =~ /\d/}
+      add :fourcc, ByteParser::UInt32, :endian => :big
+      add :version, ByteParser::UInt16, :endian => :little
+      add :name, ByteParser::CString
+      add :tag, ByteParser::FixedString, :size => 7
+      add :weird_string, ByteParser::String, :terminator => "4"
+      add :number_terminated_string, ByteParser::String, :terminator => proc {|x| x =~ /\d/}
     end
   end
 

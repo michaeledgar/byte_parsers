@@ -35,11 +35,21 @@ class ByteParser
     def read(input)
       raise NotImplementedError.new('subclasses must implement #read')
     end
+    
+    # Writes the field out to the output stream
+    #
+    # @param [IO, #write] output the output stream
+    # @return [Object] some object. Could be anything!
+    def write(output)
+      raise NotImplementedError.new('subclasses must implement #write')
+    end
   end
   
   class BlockParser < Parser
     def initialize(opts={})
-      raise ArgumentError.new("Must provide :block for BlockParser") unless opts[:block]
+      if !(opts[:read_block] && opts[:write_block])
+        raise ArgumentError.new("Must provide :read_block and :write_block for BlockParser")
+      end
       super
     end
     
@@ -52,7 +62,11 @@ class ByteParser
     end
     
     def read(input)
-      opts[:block].call(input)
+      opts[:read_block].call(input)
+    end
+    
+    def write(value, output)
+      opts[:write_block].call(value, output)
     end
   end
   
@@ -63,27 +77,36 @@ class ByteParser
     <<-EOF
       def fixed_size?; true; end
       def static_size; #{size}; end
-      def read(input)
+      def packing_char
         char = case opts[:endian]
                when :big then '#{big}'
                when :little then '#{little}'
                else '#{native}'
                end
+      end
     EOF
     klass = Class.new(Parser)
     const_set("UInt#{size * 8}", klass)
     klass.class_eval(preamble + <<-EOF)
-        input.read(static_size).unpack(char).first
+      def read(input)
+        input.read(static_size).unpack(packing_char).first
+      end
+      def write(value, output)
+        output.write([value].pack(packing_char))
       end
     EOF
     klass = Class.new(Parser)
     const_set("Int#{size * 8}", klass)
     klass.class_eval(preamble + <<-EOF)
-        result = input.read(static_size).unpack(char).first
+      def read(input)
+        result = input.read(static_size).unpack(packing_char).first
         if result >= #{2 ** (size * 8 - 1)}
           result = -1 * (#{2 ** (size * 8)} - result)
         end
         result
+      end
+      def write(value, output)
+        output.write([value].pack(packing_char))
       end
     EOF
   end
@@ -128,6 +151,25 @@ class ByteParser
         end
       end
       result
+    end
+    
+    def write(value, output)
+      if Proc === opts[:terminator] && !opts[:write_block]
+        raise ArgumentError.new('cannot write with a proc :terminator and no :write_block')
+      end
+      
+      if opts[:write_block]
+        output.write(value)
+        opts[:write_block].call(output)
+      elsif opts[:terminator]
+        output.write(value)
+        output.write(opts[:terminator])
+      elsif opts[:size]
+        output.write(value[0...opts[:size]])
+        padding_size = opts[:size] - value.size
+        padding = padding_size <= 0 ? "" : (opts[:padding] || "\0") * padding_size 
+        output.write(padding)
+      end
     end
   end
   
