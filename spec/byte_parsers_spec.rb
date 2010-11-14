@@ -9,8 +9,8 @@ describe ByteParser do
       add :tag, ByteParser::FixedString, :size => 7
       add :weird_string, ByteParser::String, :terminator => "4"
       add :number_terminated_string, ByteParser::String,
-          :terminator => proc {|x| x =~ /\d/},
-          :write_block => proc {|v,o| o.write(v.to_s + '1')}
+          :terminator => proc {|x| x =~ /\d/ && @term = $& },
+          :write_block => proc {|v,o| o.write(v.to_s + @term)}
     end
   end
 
@@ -52,6 +52,25 @@ describe ByteParser do
       result.tag.should == @tag
       result.weird_string.should == @weird_string
       result.number_terminated_string.should == @number_terminated
+    end
+  end
+  
+  describe '#write' do
+    before do
+      @fourcc = RandomStuff.bytes 4
+      @version = RandomStuff.bytes 2
+      @name = RandomStuff.name
+      @tag = RandomStuff.string(7)
+      @weird_string = RandomStuff.string(RandomStuff.number(15..100))
+      @number_terminated = RandomStuff.string(RandomStuff.number(15..100))
+      @input = @fourcc + @version + @name + "\0" + @tag + @weird_string +
+               "4" + @number_terminated + RandomStuff.number(0..9).to_s
+    end
+    
+    it 'writes back exactly as it was read in' do
+      output = StringIO.new
+      SimpleParser.read(StringIO.new(@input)).write(output)
+      output.string.should == @input
     end
   end
 end
