@@ -1,3 +1,5 @@
+# This module includes all of ByteParser with a smaller name,
+# so that pre-defined Parsers can be accessed easily.
 module BP
   BlockParser = ByteParser::BlockParser
   UInt32 = ByteParser::UInt32

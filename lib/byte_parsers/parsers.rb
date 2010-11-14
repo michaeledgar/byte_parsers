@@ -3,6 +3,8 @@ class ByteParser
     
   end
   
+  # If #static_size is called on a class with none, this exception is
+  # raised.
   class DynamicParserError < Exception; end
   
   # A generic parser class. Its definitions of fixed_size?, static_size,
@@ -78,7 +80,20 @@ class ByteParser
     end
   end
   
+  # This parser has two blocks: a read block, and a write block.
+  #
+  # The read block receives an input stream, and must return a value,
+  # presumably based on some data read from the input stream.
+  #
+  # The write block receives a value and an output stream, and should
+  # write that value with some encoding to the output stream.
   class BlockParser < Parser
+    # Initializes the block parser. This override simply verifies the
+    # input options, namely that both :read_block and :write_block are
+    # present.
+    #
+    # @raise ArgumentError if :read_block and :write_block are not present,
+    #   this parser fails verification.
     def initialize(opts={})
       if !(opts[:read_block] && opts[:write_block])
         raise ArgumentError.new("Must provide :read_block and :write_block for BlockParser")
@@ -86,17 +101,34 @@ class ByteParser
       super
     end
     
+    # Always a dynamic size, since we can't introspect the blocks. However,
+    # subclasses could override this if the blocks happen to use a fixed
+    # amount of space on all invocations.
     dynamic_size
     
+    # Runs the read block to read a value from the input stream.
+    #
+    # @param [IO, #read] input the input stream to read through.
+    # @return [Object] the value read from the stream
     def read(input)
       opts[:read_block].call(input)
     end
     
+    # Runs the write block to write the value to the output stream.
+    #
+    # @param [Object] value the value to write.
+    # @return [IO, #write] output the output stream to write to.
     def write(value, output)
       opts[:write_block].call(value, output)
     end
   end
   
+  # This creates 2 classes for each input array, for unsigned and
+  # signed integers of 1, 2, and 4 bytes. It usees String#unpack
+  # and Array#pack to do its magic.
+  #
+  # The following arrays are in the form:
+  # [size, big-endian-pack-char, little-endian-pack-char, native-pack-char]
   [[4, 'N', 'V', 'L'], [2, 'n', 'v', 'S'],
    [1, 'C', 'C', 'C']].each do |size, big, little, native|
      # defs are faster than define_method. Though worse.
@@ -137,7 +169,38 @@ class ByteParser
     EOF
   end
 
+  # This is a parser for generic String behavior. It handles both fixed-size
+  # strings and strings with terminators. In order to use it, only ONE of
+  # :size or :terminator may be provided, to specialize the String's behavior.
+  #
+  # This class is public because complex behavior may be necessary. However,
+  # you should use one of the simpler subclasses (CString and FixedSize) if
+  # your needs fall under their capabilities.
+  #
+  # When used with an Integer :size option, the parser always reads that many
+  # bytes from input. It always writes that many bytes, padded with its :padding
+  # option (defaults to the null byte).
+  #
+  # When reading with a :terminator option, a few behaviors are possible:
+  #   * If :terminator is a String, reading stops after the terminator is read.
+  #     it is not appended to the result, but it is consumed from the input.
+  #   * If :terminator is a Proc, then the proc is called with each consumed 
+  #     character as an argument. When the Proc returns true, reading stops.
+  #     The character that causes the proc to be true is *not* appended to the
+  #     resulting string.
+  # When writing with a :terminator option, two behaviors are again possible:
+  #   * If :terminator is a String, the value is written and then the terminator
+  #     is written to the output.
+  #   * If :terminator is a Proc, then :write_block *must* be provided, and it
+  #     to must be a proc. It is called with the given value (string) being
+  #     written as well as an output stream.
   class String < Parser
+    # Initializes the parser and verifies that its options are consistent.
+    #
+    # @raise ArgumentError if neither :size nor :terminator are provided
+    # @raise ArgumentError if :size is provided but is not an integer
+    # @raise ArgumentError if :terminator is neither a String nor a Proc
+    # @raise ArgumentError if :terminator is a Proc but :write_block is not
     def initialize(opts={})
       super
       if !(opts.has_key?(:size) ^ opts.has_key?(:terminator))
@@ -155,10 +218,18 @@ class ByteParser
       end
     end
     
+    # Returns if the size is fixed or not.
+    #
+    # @return is the size fixed?
     def fixed_size?
       opts[:size]
     end
     
+    # Returns the static size of the String parser, or raises if there is
+    # none.
+    #
+    # @return [Integer] the static size of the parser's input/output representation
+    # @raise DynamicParserError if the parser is not of a fixed size
     def static_size
       if opts[:size]
       then return opts[:size]
@@ -166,6 +237,12 @@ class ByteParser
       end
     end
     
+    # Reads the string in from the input stream and returns it. See the
+    # description of the class for more details on this algorithm.
+    #
+    # @see ByteParser::String
+    # @param [IO, #read] input the input stream to read from
+    # @return [String] a string from the input
     def read(input)
       return input.read(opts[:size]) if opts[:size]
       result = ""
@@ -182,6 +259,12 @@ class ByteParser
       result
     end
     
+    # Writes a given string to the output stream. See the description of
+    # the class for more details on this algorithm.
+    #
+    # @see ByteParser::String
+    # @param [String] value a string to write
+    # @param [IO, #write] output the output stream to write from
     def write(value, output)
       if opts[:write_block]
         opts[:write_block].call(value, output)
@@ -197,12 +280,15 @@ class ByteParser
     end
   end
   
+  # This is a simple parser for a null-terminated string.
   class CString < String
     def initialize(opts={})
-      super(opts.merge(:terminator => "\0"))
+      super({:terminator => "\0"}.merge(opts))
     end
   end
 
+  # A simple parser for a fixed-size string. Provides a more specialized
+  # error warning during creation if improperly declared.
   class FixedString < String
     def initialize(opts={})
       raise ArgumentError.new('FixedString requires :size') unless opts[:size]
