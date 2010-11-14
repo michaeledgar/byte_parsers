@@ -37,77 +37,79 @@ class ByteParser
     end
   end
   
-  class UInt32 < Parser
-    def fixed_size?
-      true
-    end
-    
-    def static_size
-      4
-    end
-    
-    def read(input)
-      char = opts[:endian] == :big ? 'N' : 'L'
-      input.read(static_size).unpack(char).first
-    end
-  end
-
-  class UInt16 < Parser
-    def fixed_size?
-      true
-    end
-    
-    def static_size
-      1
-    end
-    
-    def read(input)
-      char = opts[:endian] == :big ? "n" : "s"
-      input.read(static_size).unpack(char).first
-    end
-  end
-
-  class CString < Parser
-    def fixed_size?
-      false
-    end
-    
-    def static_size
-      raise DynamicParserError.new
-    end
-    
-    def read(input)
-      result = ""
-      while (char = input.read(1)) && char != "\0"
-        result << char
+  [[4, 'N', 'V', 'L'], [2, 'n', 'v', 'S'],
+   [1, 'C', 'C', 'C']].each do |size, big, little, native|
+    klass = Class.new(Parser)
+    # defs are faster than define_method. Though worse.
+    klass.class_eval(<<-EOF)
+      def fixed_size?; true; end
+      def static_size; #{size}; end
+      def read(input)
+        char = case opts[:endian]
+        when :big then '#{big}'
+        when :little then '#{little}'
+        else '#{native}'
+        end
+        input.read(static_size).unpack(char).first
       end
-      return result
-    end
+    EOF
+    const_set("UInt#{size * 8}", klass)
   end
+
 
   class String < Parser
-  end
-
-  class FixedString < Parser
-    def initialize(*args)
+    def initialize(opts={})
       super
-      if !opts[:size]
-        raise ArgumentError.new("No :size option provided to FixedString")
-      elsif !(Integer === opts[:size])
-        raise ArgumentError.new(':size option for FixedString must be an integer.')
+      if !(opts.has_key?(:size) ^ opts.has_key?(:terminator))
+        raise ArgumentError.new('Either :size or :terminator must be provided to String parsers')
+      end
+      if opts[:size]
+        raise ArgumentError.new(':size must be an Integer') unless Integer === opts[:size]
+      elsif opts[:terminator]
+        if !(::String === opts[:terminator] || Proc === opts[:terminator])
+          raise ArgumentError.new(':terminator must be a String or a proc.')
+        end
       end
     end
-
-    def fixed_size?
-      true
-    end
     
-    def static_size
+    def fixed_size?
       opts[:size]
     end
     
+    def static_size
+      if opts[:size]
+      then return opts[:size]
+      else raise DynamicParserError.new
+      end
+    end
+    
     def read(input)
-      input.read(static_size)
+      return input.read(opts[:size]) if opts[:size]
+      result = ""
+      # Extract conditionals to outside of loop
+      if ::String === opts[:terminator]
+        while (char = input.read(1)) && char != opts[:terminator]
+          result << char
+        end
+      elsif Proc === opts[:terminator]
+        while (char = input.read(1)) && !opts[:terminator].call(char)
+          result << char
+        end
+      end
+      result
+    end
+  end
+  
+  class CString < String
+    def initialize(opts={})
+      super(opts.merge(:terminator => "\0"))
+    end
+  end
+
+  class FixedString < String
+    def initialize(opts={})
+      raise ArgumentError.new('FixedString requires :size') unless opts[:size]
+      super
     end
   end
 end
