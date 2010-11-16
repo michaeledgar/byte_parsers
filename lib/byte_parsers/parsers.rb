@@ -22,6 +22,24 @@ class ByteParser
       @opts = opts
     end
     
+    if RUBY_VERSION >= "1.9"
+      # Gets the ascii value of the first byte of the string.
+      #
+      # @param [String] char the character to read.
+      # @return [Integer] the first byte of the string, as an integer.
+      def ord(char)
+        char.ord
+      end
+    else
+      # Gets the ascii value of the first byte of the string.
+      #
+      # @param [String] char the character to read.
+      # @return [Integer] the first byte of the string, as an integer.
+      def ord(char)
+        char[0]
+      end
+    end
+    
     # Sets the class's static size. Helper for defining the
     # fixed_size? and static_size methods.
     #
@@ -78,6 +96,50 @@ class ByteParser
     def write(output)
       raise NotImplementedError.new('subclasses must implement #write')
     end
+    
+    # This is run once - at load time - to determine endianness.
+    
+    # Figures up the system is running on a little or big endian processor
+    # architecture, and upates the SYSTEM[] hash in the Support module.
+    def self.determine_endianness
+      num = 0x12345678
+      native = [num].pack('l')
+      netunpack = native.unpack('N')[0]
+      if num == netunpack
+        @endian = :big
+      else
+        @endian = :little
+      end
+    end
+    determine_endianness
+    
+    # For later lookup: the native endian format.
+    #
+    # @return [Symbol] either :big or :little
+    def self.native_endian
+      @endian
+    end
+    
+    # For later lookup: the native endian format.
+    #
+    # @return [Symbol] either :big or :little
+    def native_endian
+      Parser.native_endian
+    end
+    
+    # Returns the endian to use: :little or :big. The issue
+    # arises when users provide :native, which means we now need to compare
+    # versus our native endian.
+    #
+    # @return [Symbol] either :big or :little, whichever should be used based
+    #   on opts[:endian]
+    def endian
+      case opts[:endian]
+      when :big then :big
+      when :little then :little
+      when :native then native_endian
+      end
+    end
   end
   
   # This parser has two blocks: a read block, and a write block.
@@ -128,18 +190,17 @@ class ByteParser
   # and Array#pack to do its magic.
   #
   # The following arrays are in the form:
-  # [size, big-endian-pack-char, little-endian-pack-char, native-pack-char]
-  [[4, 'N', 'V', 'L'], [2, 'n', 'v', 'S'],
-   [1, 'C', 'C', 'C']].each do |size, big, little, native|
+  # [size, big-endian-pack-char, little-endian-pack-char,]
+  [[4, 'N', 'V'], [2, 'n', 'v'],
+   [1, 'C', 'C']].each do |size, big, little|
      # defs are faster than define_method. Though worse.
     preamble =
     <<-EOF
       static_size #{size}
       def packing_char
-        char = case opts[:endian]
+        char = case endian
                when :big then '#{big}'
                when :little then '#{little}'
-               else '#{native}'
                end
       end
     EOF
@@ -167,6 +228,61 @@ class ByteParser
         output.write([value].pack(packing_char))
       end
     EOF
+  end
+
+  # This is a parser for a non-uniform length, Base 128
+  # integer. The MSB of each byte indicates whether to read
+  # an additional byte.
+  class Base128 < Parser
+    dynamic_size
+    
+    # Reads the Base128 from the input stream. How we handle this
+    # is quite different based on the endianness of the stream.
+    # The conditional is hoisted so the loops can go quicker.
+    #
+    # @param [IO, #read] input the input stream to read
+    # @return [Integer] an integer of any size
+    def read(input)
+      result = 0
+      if endian == :little
+        shift = 0
+        begin
+          byte = ord input.read(1)
+          result |= (byte & 0x7f) << shift
+          shift += 7
+        end while (byte & 0x80) > 0
+      else
+        begin
+          byte = ord input.read(1)
+          result = (result << 7) | (byte & 0x7f)
+        end while (byte & 0x80) > 0
+      end
+      result
+    end
+    
+    # Writes the Base128 to the input stream. How we handle this
+    # is quite different based on the endianness of the stream.
+    # The conditional is hoisted so the loops can go quicker.
+    #
+    # @param [Integer] an integer of any size
+    # @param [IO, #read] output the output stream to write to
+    def write(value, output)
+      if endian == :little
+        begin
+          byte, value = (value & 0x7f), (value >> 7)
+          byte = 0x80 | byte if value > 0
+          output.write(byte.chr)
+        end while value > 0
+      else
+        result_bytes = []
+        begin
+          byte, value = (value & 0x7f), (value >> 7)
+          byte = 0x80 | byte if !result_bytes.empty?
+          result_bytes << byte.chr
+        end while value > 0
+        result_bytes.reverse.each {|x| output.write x}
+      end
+    end
   end
 
   # This is a parser for generic String behavior. It handles both fixed-size

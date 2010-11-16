@@ -31,6 +31,31 @@ describe ByteParser::Parser do
       end
     end
   end
+  
+  describe '#native_endian' do
+    it 'returns :big or :little' do
+      [:big, :little].should include(ByteParser::Parser.new.native_endian)
+    end
+  end
+  
+  describe '.native_endian' do
+    it 'returns :big or :little' do
+      [:big, :little].should include(ByteParser::Parser.new.native_endian)
+    end
+  end
+  
+  describe '#endian' do
+    it 'returns :little when opts[:endian] is :little' do
+      ByteParser::Parser.new(:endian => :little).endian.should == :little
+    end
+    it 'returns :big when opts[:endian] is :big' do
+      ByteParser::Parser.new(:endian => :big).endian.should == :big
+    end
+    it 'returns the native endian when opts[:endian] is :native' do
+      parser = ByteParser::Parser.new(:endian => :native)
+      parser.endian.should == parser.native_endian
+    end
+  end
 end
 
 describe ByteParser::BlockParser do
@@ -178,6 +203,49 @@ describe ByteParser::Int8 do
   describe '#write' do
     writes 0x01, "\x01", 'writes a simple little-endian int8', parser
     writes 0x01, "\x01", 'should be unaffected by endianness', be_parser
+  end
+end
+
+
+describe ByteParser::Base128 do
+  parser = ByteParser::Base128.new(:endian => :little)
+  be_parser = ByteParser::Base128.new(:endian => :big)
+
+  is_not_fixed parser
+  no_static_size parser
+
+  describe '#read' do
+    reads "\x37blahblah", 0x37, 'reads a simple one-byte, little-endian Base128', parser
+    reads "\xb7\x02blahblah", 0x137, 'reads a simple two-byte, little-endian Base128', parser
+    reads "\xd5\x82\x38blah", 0xe0155, 'reads a three-byte, little-endian Base128', parser
+    reads "\x37blahblah", 0x37, 'reads a simple one-byte, big-endian Base128', be_parser
+    reads "\xb7\x02blahblah", 0x1b82, 'reads a simple two-byte, big-endian Base128', be_parser
+    reads "\xd5\x82\x38blah", 0x154138, 'reads a three-byte, big-endian Base128', be_parser
+  end
+
+  describe '#write' do
+    writes 0x37, "\x37", 'writes a 1-byte little-endian Base128', parser
+    writes 0x137, "\xb7\x02", 'writes a 2-byte little-endian Base128', parser
+    writes 0xe0155, "\xd5\x82\x38", 'writes a 3-byte little-endian Base128', parser
+    writes 0x37, "\x37", 'writes a 1-byte big-endian Base128', be_parser
+    writes 0x1b82, "\xb7\x02", 'writes a 2-byte big-endian Base128', be_parser
+    writes 0x154138, "\xd5\x82\x38", 'writes a 3-byte big-endian Base128', be_parser
+  end
+  
+  describe 'randomized testing' do
+    10.times do
+      x = rand(2 ** 32)
+      [parser, be_parser].each do |parser_chosen|    
+        title = parser_chosen == parser ? 'little' : 'big'    
+        it "reads back the same random #{title}-endian value written: #{x}" do
+          output = StringIO.new
+          parser_chosen.write(x, output)
+          output.rewind
+          parser_chosen.read(output).should == x
+          p output.string
+        end
+      end
+    end
   end
 end
 
